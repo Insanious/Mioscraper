@@ -12,10 +12,8 @@ def go_to_next_page(driver, is_first):
 	next_button = None
 	if is_first:
 		next_button = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, '//*[@id="app"]/div/div[3]/div[3]/div[2]/div[2]/div/a')))
-		#next_button = driver.find_element_by_xpath('//*[@id="app"]/div/div[3]/div[3]/div[2]/div[2]/div/a')
 	else:
 		next_button = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, '//*[@id="app"]/div/div[3]/div[3]/div[2]/div[2]/div/a[2]')))
-		#next_button = driver.find_element_by_xpath('//*[@id="app"]/div/div[3]/div[3]/div[2]/div[2]/div/a[2]')
 	next_button.click()
 
 
@@ -38,24 +36,8 @@ def extract_discount_on_page(driver):
 			text = ""
 			text += element.text
 			elements.append(text)
-	#elements = [ WebDriverWait(driver, 20).until(EC.visibility_of_element_located((By.XPATH, f'//*[@id="app"]/div/div[3]/div[3]/div[2]/div[1]/div/div/div/div[{i}]'))) for i in range(1, 26) ]
-
-	#discounted = [ elem.text for elem in elements if elem.text.find("SPECIALPRIS") != -1 ]
 
 	return elements
-
-	formatted = []
-	for elem in discounted:
-		old_price, new_price = (elem[-2][:-1], elem[-3][:-1]) if elem[-1] == "Se tillgänglighet" else (elem[-1][:-1], elem[-2][:-1])
-		name = elem[0] + " "
-		for field in elem[1:]:
-			if (field == "SPECIALPRIS"):
-				break
-			name += field
-
-		formatted.append([name, old_price, new_price])
-
-	return formatted
 
 
 def is_price(element):
@@ -86,18 +68,26 @@ def filter_elements(elements):
 			continue
 
 		old_price = is_price(element[-1])
-		element = element[:-1] # remove first price
+		element = element[:-2] # remove first and second price
+		#element = element[:-1] # remove second price
 
-		discount = ""
-		if new_price != -1:
-			element = element[:-1] # remove second price
+		# discount = ""
+		# if new_price != -1:
+		# 	element = element[:-1] # remove second price
+		#
+		# 	discount = element[-1]
+		# 	element = element[:-1] # remove discount reason
 
-			discount = element[-1]
-			element = element[:-1] # remove discount reason
+		name = element[0]
+		if len(element) > 2:
+			name += ", "
+			for sub in element[1:-1]: # extract the full name (including bloat if bloat doesn't contain any digits)
+				name += sub + ", "
+			name += element[-1]
 
-		name = element[0] + ", "
-		for sub in element[1:]: # extract the full name (including bloat if bloat doesn't contain any digits)
-			name += sub
+		elif len(element) == 2:
+			name += ", "
+			name += element[1]
 
 		new_element = {}
 		new_element["name"] = name
@@ -107,102 +97,128 @@ def filter_elements(elements):
 			new_element["bloat"] = bloat
 		if new_price != -1:
 			new_element["new_price"] = new_price
-			new_element["discount"] = discount
+			#new_element["discount"] = discount
 
 		final.append(new_element)
 
 	return final
 
 
+def format_element(element, only_discounts):
+	if only_discounts:
+		if "new_price" not in element:
+			return ""
+
+	output = element["name"] + '\n'
+	output += "old price: " + element["old_price"] + '\n'
+
+	if "new_price" in element:
+		output += "new price: " + element["new_price"] + '\n'
+		output += f'diff %: {100 - (int(element["new_price"]) / int(element["old_price"]) * 100)}\n'
+	if "bloat" in element:
+		output += element["bloat"] + '\n'
+	output += '\n'
+
+	return output
+
+
 def main():
 	page_nr = 1
 	options = Options()
 	options.headless = True
-	#driver = webdriver.Firefox(options=options)
+	driver = webdriver.Firefox(options=options)
 	#driver = webdriver.Firefox()
-	#driver.implicitly_wait(1000)
-	#driver.get("https://www.mio.se/hela-sortimentet")
+	driver.implicitly_wait(1000)
+	driver.get("https://www.mio.se/hela-sortimentet")
 
 	total = []
-	#elements = extract_discount_on_page(driver)
-	#for e in elements:
-	#	total.append(e)
 
-	#go_to_next_page(driver, True)
-	#page_nr += 1
-	#print(f"page nr {page_nr}")
+	with open("output.txt", 'w+') as file:
+		pass
 
+	only_discount = True
+	first = True
 
-	# while True:
-	# 	try:
-	# 		elements = extract_discount_on_page(driver)
-	# 		for e in elements:
-	# 			total.append(e)
-	# 			#print(e)
-	# 	except:
-	# 		print("no fucking content")
-	# 		for e in total:
-	# 			print(e)
-	# 		break
+	while True:
+		if first:
+			first = False
+
+			try:
+				print(f"page nr: {page_nr}")
+
+				elements = extract_discount_on_page(driver)
+				elements = [ e.split('\n') for e in elements ]
+				elements = [ e for e in elements if len(e) > 1 ]
+				elements = filter_elements(elements)
+
+				with open("output.txt", 'a') as file:
+					for element in elements:
+						file.write(format_element(element, only_discount))
+
+			except:
+				print("no fucking content")
+				break
+			finally:
+				go_to_next_page(driver, True)
+				page_nr += 1
+
+		else:
+			try:
+				if page_nr > 10:
+					break
+
+				print(f"page nr: {page_nr}")
+
+				elements = extract_discount_on_page(driver)
+				elements = [ e.split('\n') for e in elements ]
+				elements = [ e for e in elements if len(e) > 1 ]
+				elements = filter_elements(elements)
+
+				with open("output.txt", 'a') as file:
+					for element in elements:
+						file.write(format_element(element, only_discount))
+			except:
+				print("no fucking content")
+				break
+			finally:
+				go_to_next_page(driver, False)
+				page_nr += 1
+
+	# total = [ e.split('\n') for e in total ]
+	# total = [ e for e in total if len(e) > 1 ]
+
+	# total.append(['New York', 'Kontinentalsäng, dubbelsäng med bäddmadrass', 'SPECIALPRIS', '9.995·', '12.995·', 'Se tillgänglighet'])
+	# total.append(['Harper XL', '3-sits soffa XL', 'SPECIALPRIS', '13.495·', '14.995·', 'Se tillgänglighet'])
+	# total.append(['Roma', 'Kontinentalsäng, dubbelsäng med bäddmadrass', 'SPECIALPRIS', '8.995·', '9.995·', 'Se tillgänglighet'])
+	# total.append(['Roma', 'Ramsäng, enkelsäng med bäddmadrass', 'SPECIALPRIS', '3.995·', '4.495·', 'Se tillgänglighet'])
+	# total.append(['Upp till 5.000:- rabatt', 'Charlotte', 'Stol', '1.695·', 'Se tillgänglighet'])
+	# total.append(['Upp till 5.000:- rabatt', 'Tracy', 'Stol', '499·', 'Se tillgänglighet'])
+	# total.append(['Upp till 5.000:- rabatt', 'Jack', 'Stol', '699·', 'Se tillgänglighet'])
+	# total.append(['Upp till 5.000:- rabatt', 'Ekerö', 'Matbord, L 230 cm', '8.495·', 'Se tillgänglighet'])
+	# total.append(['Upp till 5.000:- rabatt', 'Leon', 'Stol', '999·', 'Se tillgänglighet'])
+	# total.append(['Upp till 5.000:- rabatt', 'Chatham', 'Stol', '899·', 'Se tillgänglighet'])
 	#
-	# 	try:
-	# 		if page_nr > 1:
-	# 			break
-	# 		go_to_next_page(driver, False)
-	# 		page_nr += 1
-	# 		print(f"page nr {page_nr}")
-	# 	except:
-	# 		print("no fucking button")
-	# 		for e in total:
-	# 			print(e)
-	# 		break
+	# total.append(['Napoli', 'Kontinentalsäng, dubbelsäng med bäddmadrass', '7.995·', 'Se tillgänglighet'])
+	# total.append(['Fjällbacka', 'Kontinentalsäng, enkelsäng med bäddmadrass', '10.990·', 'Se tillgänglighet'])
+	# total.append(['Leone', '3-sits soffa med divan höger', '17.990·', 'Se tillgänglighet'])
+	# total.append(['Nevada', '3-sits soffa med divan vänster', '5.995·', 'Se tillgänglighet'])
+	# total.append(['Napoli', 'Kontinentalsäng, enkelsäng med bäddmadrass', '5.995·', 'Se tillgänglighet'])
+	# total.append(['County', '3-sits soffa', '6.295·', 'Se tillgänglighet'])
+	# total.append(['Sleep Delux', 'Bäddmadrass', '3.195·', 'Se tillgänglighet'])
+	# total.append(['Nevada', '3-sits soffa med schäslong vänster och divan höger', '6.995·', 'Se tillgänglighet'])
+	# total.append(['Alfa', 'Nackkudde', '699·', 'Se tillgänglighet'])
+	# total.append(['Nevada', '3-sits soffa med divan höger', '5.995·', 'Se tillgänglighet'])
+	# total.append(['Palace', 'Hotellkudde 50x90 cm', '299·', 'Se tillgänglighet'])
 
 
-	#total = [ e.split('\n') for e in total ]
-	#total = [ e for e in total if len(e) > 1 ]
+	# final = filter_elements(total)
+	#
+	# for elem in final:
+	# 	print(format_element(elem))
 
-	total.append(['New York', 'Kontinentalsäng, dubbelsäng med bäddmadrass', 'SPECIALPRIS', '9.995·', '12.995·', 'Se tillgänglighet'])
-	total.append(['Harper XL', '3-sits soffa XL', 'SPECIALPRIS', '13.495·', '14.995·', 'Se tillgänglighet'])
-	total.append(['Roma', 'Kontinentalsäng, dubbelsäng med bäddmadrass', 'SPECIALPRIS', '8.995·', '9.995·', 'Se tillgänglighet'])
-	total.append(['Roma', 'Ramsäng, enkelsäng med bäddmadrass', 'SPECIALPRIS', '3.995·', '4.495·', 'Se tillgänglighet'])
-	total.append(['Upp till 5.000:- rabatt', 'Charlotte', 'Stol', '1.695·', 'Se tillgänglighet'])
-	total.append(['Upp till 5.000:- rabatt', 'Tracy', 'Stol', '499·', 'Se tillgänglighet'])
-	total.append(['Upp till 5.000:- rabatt', 'Jack', 'Stol', '699·', 'Se tillgänglighet'])
-	total.append(['Upp till 5.000:- rabatt', 'Ekerö', 'Matbord, L 230 cm', '8.495·', 'Se tillgänglighet'])
-	total.append(['Upp till 5.000:- rabatt', 'Leon', 'Stol', '999·', 'Se tillgänglighet'])
-	total.append(['Upp till 5.000:- rabatt', 'Chatham', 'Stol', '899·', 'Se tillgänglighet'])
+	print("done")
 
-	total.append(['Napoli', 'Kontinentalsäng, dubbelsäng med bäddmadrass', '7.995·', 'Se tillgänglighet'])
-	total.append(['Fjällbacka', 'Kontinentalsäng, enkelsäng med bäddmadrass', '10.990·', 'Se tillgänglighet'])
-	total.append(['Leone', '3-sits soffa med divan höger', '17.990·', 'Se tillgänglighet'])
-	total.append(['Nevada', '3-sits soffa med divan vänster', '5.995·', 'Se tillgänglighet'])
-	total.append(['Napoli', 'Kontinentalsäng, enkelsäng med bäddmadrass', '5.995·', 'Se tillgänglighet'])
-	total.append(['County', '3-sits soffa', '6.295·', 'Se tillgänglighet'])
-	total.append(['Sleep Delux', 'Bäddmadrass', '3.195·', 'Se tillgänglighet'])
-	total.append(['Nevada', '3-sits soffa med schäslong vänster och divan höger', '6.995·', 'Se tillgänglighet'])
-	total.append(['Alfa', 'Nackkudde', '699·', 'Se tillgänglighet'])
-	total.append(['Nevada', '3-sits soffa med divan höger', '5.995·', 'Se tillgänglighet'])
-	total.append(['Palace', 'Hotellkudde 50x90 cm', '299·', 'Se tillgänglighet'])
-
-
-	final = filter_elements(total)
-
-	'''
-	ff len(bloat) != 0:
-		new_element["bloat"] = bloat
-	if new_price != -1:
-		new_element["new_price"] = new_price
-		new_element["discount"] = discount
-	'''
-
-	for elem in final:
-		if "bloat" in elem:
-			pass
-		if "new_price" in elem:
-			pass
-			pass
-
-	#driver.close()
+	driver.close()
 
 if __name__ == "__main__":
 	main()
